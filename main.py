@@ -172,19 +172,13 @@ while cap.isOpened():
 
             rom = last_rep.get("rom_score") if last_rep else None
             elbow = last_rep.get("elbow_score") if last_rep else None
-            concentric = last_rep.get("concentric_score") if last_rep else None
-            eccentric = last_rep.get("eccentric_score") if last_rep else None
-            pause = last_rep.get("top_pause_score") if last_rep else None
-
             def format_component(value):
                 if value is None:
                     return "--"
                 return f"{value * 100.0:.0f}"
 
             components_text = (
-                f"ROM {format_component(rom)}  ELB {format_component(elbow)}  "
-                f"CON {format_component(concentric)}  ECC {format_component(eccentric)}  "
-                f"PAU {format_component(pause)}"
+                f"ROM {format_component(rom)}  ELB {format_component(elbow)}"
             )
             side_label = "L" if tracked_side == "left" else "R"
             cv2.putText(

@@ -1,4 +1,3 @@
-import time
 import numpy as np
 
 
@@ -21,13 +20,6 @@ def calculate_angle(point_a, point_b, point_c):
 def _init_rep_metrics():
     return {
         "rep_active": False,
-        "rep_start_time": None,
-        "concentric_start": None,
-        "concentric_end": None,
-        "eccentric_start": None,
-        "eccentric_end": None,
-        "top_pause_start": None,
-        "top_pause_end": None,
         "min_angle": None,
         "max_angle": None,
         "baseline_elbow_offset": None,
@@ -39,15 +31,8 @@ def _init_rep_metrics():
     }
 
 
-def _reset_rep_metrics(metrics, shoulder, elbow, angle, now):
+def _reset_rep_metrics(metrics, shoulder, elbow, angle):
     metrics["rep_active"] = True
-    metrics["rep_start_time"] = now
-    metrics["concentric_start"] = None
-    metrics["concentric_end"] = None
-    metrics["eccentric_start"] = None
-    metrics["eccentric_end"] = None
-    metrics["top_pause_start"] = None
-    metrics["top_pause_end"] = None
     metrics["min_angle"] = angle
     metrics["max_angle"] = angle
     elbow_offset = np.array(elbow[:2]) - np.array(shoulder[:2])
@@ -69,12 +54,6 @@ def _update_rep_metrics(metrics, shoulder, elbow, angle):
         drift = float(np.linalg.norm(elbow_offset - baseline))
         if drift > metrics["max_elbow_drift"]:
             metrics["max_elbow_drift"] = drift
-
-
-def _duration(start, end):
-    if start is None or end is None:
-        return None
-    return max(0.0, end - start)
 
 
 def _score_range(value, ideal_min, ideal_max, min_val, max_val):
@@ -113,27 +92,13 @@ def _compute_rep_score(metrics):
         elbow_ratio = metrics["max_elbow_drift"] / metrics["upper_arm_length"]
     elbow_score = _score_ratio(elbow_ratio, 0.05, 0.2)
 
-    concentric_s = _duration(metrics["concentric_start"], metrics["concentric_end"])
-    eccentric_s = _duration(metrics["eccentric_start"], metrics["eccentric_end"])
-    top_pause_s = _duration(metrics["top_pause_start"], metrics["top_pause_end"])
-
-    concentric_score = _score_range(concentric_s, 1.5, 2.5, 1.0, 3.0)
-    eccentric_score = _score_range(eccentric_s, 2.5, 4.0, 1.0, 5.0)
-    top_pause_score = _score_range(top_pause_s, 0.5, 1.0, 0.1, 1.5)
-
     weights = {
         "rom": 40,
         "elbow": 35,
-        "concentric": 0,
-        "eccentric": 0,
-        "top_pause": 0,
     }
     weighted_scores = {
         "rom": rom_score,
         "elbow": elbow_score,
-        "concentric": concentric_score,
-        "eccentric": eccentric_score,
-        "top_pause": top_pause_score,
     }
 
     total = 0.0
@@ -151,15 +116,9 @@ def _compute_rep_score(metrics):
         "total_score": round((total / total_weight) * 100.0, 1),
         "min_angle": min_angle,
         "max_angle": max_angle,
-        "concentric_s": concentric_s,
-        "eccentric_s": eccentric_s,
-        "top_pause_s": top_pause_s,
         "elbow_drift_ratio": elbow_ratio,
         "rom_score": rom_score,
         "elbow_score": elbow_score,
-        "concentric_score": concentric_score,
-        "eccentric_score": eccentric_score,
-        "top_pause_score": top_pause_score,
     }
 
 
@@ -192,10 +151,6 @@ def count_bicep_curls(keypoints, state, side="right", confidence_threshold=0.4, 
     if min(shoulder[2], elbow[2], wrist[2]) < confidence_threshold:
         return state
 
-    now = time.time()
-    movement_margin = 5.0
-    top_hold_margin = 5.0
-
     angle = calculate_angle(shoulder[:2], elbow[:2], wrist[:2])
     metrics = state.setdefault("metrics", _init_rep_metrics())
 
@@ -204,38 +159,15 @@ def count_bicep_curls(keypoints, state, side="right", confidence_threshold=0.4, 
     if angle > down_angle:
         if state.get("stage") != "down":
             if state.get("stage") == "up":
-                if metrics["top_pause_start"] is not None and metrics["top_pause_end"] is None:
-                    metrics["top_pause_end"] = metrics["eccentric_start"] or now
-                if metrics["eccentric_start"] is None and metrics["top_pause_end"] is not None:
-                    metrics["eccentric_start"] = metrics["top_pause_end"]
-                metrics["eccentric_end"] = now
                 rep_score = _compute_rep_score(metrics)
                 if rep_score is not None:
                     metrics["scores"].append(rep_score)
                     metrics["last_score"] = rep_score["total_score"]
                     metrics["last_rep"] = rep_score
-            _reset_rep_metrics(metrics, shoulder, elbow, angle, now)
+            _reset_rep_metrics(metrics, shoulder, elbow, angle)
         state["stage"] = "down"
     elif angle < up_angle and state.get("stage") == "down":
         state["count"] += 1
         state["stage"] = "up"
-        if metrics["concentric_start"] is None:
-            metrics["concentric_start"] = metrics["rep_start_time"] or now
-        metrics["concentric_end"] = now
-        metrics["top_pause_start"] = now
-    else:
-        if state.get("stage") == "down":
-            if metrics["concentric_start"] is None and angle < down_angle - movement_margin:
-                metrics["concentric_start"] = now
-        if state.get("stage") == "up":
-            if metrics["top_pause_start"] is not None and metrics["top_pause_end"] is None:
-                if angle > up_angle + top_hold_margin:
-                    metrics["top_pause_end"] = now
-                    metrics["eccentric_start"] = now
-            if metrics["eccentric_start"] is None and angle > up_angle + top_hold_margin:
-                metrics["eccentric_start"] = now
-
-    print(metrics["concentric_end"])
-    print(metrics["eccentric_end"])
 
     return state
