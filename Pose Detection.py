@@ -3,6 +3,7 @@ import tensorflow as tf
 import numpy as np
 from matplotlib import pyplot as plt
 import cv2
+from bicep_curl import count_bicep_curls
 
 # Load the TensorFlow Lite model and allocate tensors
 interpreter = tf.lite.Interpreter(model_path='3.tflite')
@@ -56,10 +57,13 @@ def draw_connections(frame, keypoints, edges, confidence_threshold):
 
 # Initialize webcam capture
 cap = cv2.VideoCapture(0)  # Open webcam (use '0' if there's only one camera)
+curl_state = None
 while cap.isOpened():
     ret, frame = cap.read()  # Read a frame from the webcam
     if not ret:
         break  # Exit loop if no frame is captured
+    
+    frame = cv2.flip(frame, 1)  # Mirror the camera view for a more natural display
     
     # Preprocess the frame for the model
     img = frame.copy()  # Make a copy of the frame
@@ -78,6 +82,20 @@ while cap.isOpened():
     # Render keypoints and connections on the frame
     draw_connections(frame, keypoints_with_scores, EDGES, 0.4)  # Draw connections
     draw_keypoints(frame, keypoints_with_scores, 0.4)  # Draw keypoints
+    
+    # Update curl counts
+    curl_state = count_bicep_curls(keypoints_with_scores, curl_state)
+    if curl_state is not None:
+        cv2.putText(
+            frame,
+            f"L Curls: {curl_state['left_count']}  R Curls: {curl_state['right_count']}",
+            (10, 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
     
     # Display the output frame
     cv2.imshow('MoveNet Lightning', frame)
