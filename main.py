@@ -358,6 +358,7 @@ class App(customtkinter.CTk):
         count = self.exercise_state.get("count", 0)
         total_score = self.exercise_state.get("score", 0)
         last_score = self.exercise_state.get("last_score", 0)
+        knee_status = self.exercise_state.get("last_knee_status") or "N/A"
         back_status = self.exercise_state.get("last_back") or "N/A"
         feedback = self.exercise_state.get("last_feedback") or "Hold steady"
 
@@ -369,7 +370,8 @@ class App(customtkinter.CTk):
         self.rep_label.configure(text=f"Reps: {count}")
         self.score_label.configure(text=f"Score: {last_score:.1f}")
         self.side_label.configure(text=f"Total: {total_score}")
-        self.detail_label.configure(text=f"{back_status} | {feedback}")
+        detail_left = knee_status if label_prefix == "Squat" else back_status
+        self.detail_label.configure(text=f"{detail_left} | {feedback}")
 
     def _update_image(self, frame) -> None:
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)

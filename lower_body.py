@@ -27,7 +27,7 @@ def _update_rep_state(state, angle, down_angle, up_angle):
         state["stage"] = "down"
 
 
-def calculate_squat_score(depth, back_status, left_knee_angle, right_knee_angle):
+def calculate_squat_score(depth, knee_status, left_knee_angle, right_knee_angle):
     """
     Calculate overall squat quality score out of 100.
     """
@@ -45,15 +45,11 @@ def calculate_squat_score(depth, back_status, left_knee_angle, right_knee_angle)
         depth_score = 7
     score += depth_score
 
-    if back_status == "Back straight":
-        posture_score = 33
-    elif back_status == "Back too forward":
-        posture_score = 13
-    elif back_status == "Back hyperextended":
-        posture_score = 11
+    if knee_status == "Knees in position":
+        knee_score = 33
     else:
-        posture_score = 20
-    score += posture_score
+        knee_score = 13
+    score += knee_score
 
     knee_angle_diff = abs(left_knee_angle - right_knee_angle)
     if knee_angle_diff < 10:
@@ -113,12 +109,10 @@ def calculate_lunge_score(front_knee_depth, back_knee_depth, back_status, symmet
 def analyze_squat_form(keypoints, confidence_threshold=0.25, frame_shape=None):
     """
     Analyze squat form from front view.
-    Returns: (depth_percent, back_status, feedback, left_knee_angle, right_knee_angle)
+    Returns: (depth_percent, feedback, left_knee_angle, right_knee_angle, knee_status)
     """
     shaped = np.squeeze(keypoints)
 
-    left_shoulder_idx = 5
-    right_shoulder_idx = 6
     left_hip_idx = 11
     right_hip_idx = 12
     left_knee_idx = 13
@@ -128,8 +122,6 @@ def analyze_squat_form(keypoints, confidence_threshold=0.25, frame_shape=None):
 
     if frame_shape is not None:
         frame_height, frame_width = frame_shape[0], frame_shape[1]
-        left_shoulder = shaped[left_shoulder_idx][:2] * [frame_height, frame_width]
-        right_shoulder = shaped[right_shoulder_idx][:2] * [frame_height, frame_width]
         left_hip = shaped[left_hip_idx][:2] * [frame_height, frame_width]
         right_hip = shaped[right_hip_idx][:2] * [frame_height, frame_width]
         left_knee = shaped[left_knee_idx][:2] * [frame_height, frame_width]
@@ -137,8 +129,6 @@ def analyze_squat_form(keypoints, confidence_threshold=0.25, frame_shape=None):
         left_ankle = shaped[left_ankle_idx][:2] * [frame_height, frame_width]
         right_ankle = shaped[right_ankle_idx][:2] * [frame_height, frame_width]
     else:
-        left_shoulder = shaped[left_shoulder_idx][:2]
-        right_shoulder = shaped[right_shoulder_idx][:2]
         left_hip = shaped[left_hip_idx][:2]
         right_hip = shaped[right_hip_idx][:2]
         left_knee = shaped[left_knee_idx][:2]
@@ -152,8 +142,6 @@ def analyze_squat_form(keypoints, confidence_threshold=0.25, frame_shape=None):
     right_knee_conf = shaped[right_knee_idx][2]
     left_ankle_conf = shaped[left_ankle_idx][2]
     right_ankle_conf = shaped[right_ankle_idx][2]
-    left_shoulder_conf = shaped[left_shoulder_idx][2]
-    right_shoulder_conf = shaped[right_shoulder_idx][2]
 
     visible_count = sum(
         [
@@ -166,37 +154,31 @@ def analyze_squat_form(keypoints, confidence_threshold=0.25, frame_shape=None):
         ]
     )
     if visible_count < 3:
-        return None, None, "Insufficient visibility", 0, 0
+        return None, "Insufficient visibility", 0, 0, "N/A"
 
     left_knee_angle = calculate_angle(left_hip, left_knee, left_ankle)
     right_knee_angle = calculate_angle(right_hip, right_knee, right_ankle)
     avg_knee_angle = (left_knee_angle + right_knee_angle) / 2
     squat_depth_percent = max(0, min(100, (170 - avg_knee_angle) / 0.8))
 
-    back_status = "N/A"
-    if left_shoulder_conf > confidence_threshold and right_shoulder_conf > confidence_threshold:
-        avg_shoulder = [
-            (left_shoulder[0] + right_shoulder[0]) / 2,
-            (left_shoulder[1] + right_shoulder[1]) / 2,
-        ]
-        avg_hip = [
-            (left_hip[0] + right_hip[0]) / 2,
-            (left_hip[1] + right_hip[1]) / 2,
-        ]
+    knees_in_position = True
+    ankle_conf_threshold = 0.2
 
-        shoulder_hip_dx = abs(avg_shoulder[0] - avg_hip[0])
-        shoulder_hip_dy = abs(avg_shoulder[1] - avg_hip[1])
-        if shoulder_hip_dy > 0:
-            lean_angle = np.degrees(np.arctan(shoulder_hip_dx / shoulder_hip_dy))
-        else:
-            lean_angle = 0
+    if left_knee_conf > confidence_threshold and left_ankle_conf > ankle_conf_threshold:
+        knee_to_ankle_dx = left_ankle[0] - left_knee[0]
+        knee_to_ankle_dy = left_ankle[1] - left_knee[1]
+        if knee_to_ankle_dy > 5:
+            if knee_to_ankle_dx < -15 or knee_to_ankle_dx > 20:
+                knees_in_position = False
 
-        if lean_angle < 30:
-            back_status = "Back straight"
-        elif lean_angle < 50:
-            back_status = "Back slightly forward"
-        else:
-            back_status = "Back too forward"
+    if right_knee_conf > confidence_threshold and right_ankle_conf > ankle_conf_threshold:
+        knee_to_ankle_dx = right_ankle[0] - right_knee[0]
+        knee_to_ankle_dy = right_ankle[1] - right_knee[1]
+        if knee_to_ankle_dy > 5:
+            if knee_to_ankle_dx > 15 or knee_to_ankle_dx < -20:
+                knees_in_position = False
+
+    knee_status = "Knees in position" if knees_in_position else "Knees out of position"
 
     if squat_depth_percent < 15:
         feedback = "Go deeper"
@@ -207,7 +189,13 @@ def analyze_squat_form(keypoints, confidence_threshold=0.25, frame_shape=None):
     else:
         feedback = f"Depth: {squat_depth_percent:.0f}%"
 
-    return squat_depth_percent, back_status, feedback, left_knee_angle, right_knee_angle
+    return (
+        squat_depth_percent,
+        feedback,
+        left_knee_angle,
+        right_knee_angle,
+        knee_status,
+    )
 
 
 def analyze_lunge_form(keypoints, confidence_threshold=0.25, frame_shape=None):
@@ -359,7 +347,7 @@ def _init_squat_state():
         "is_active": False,
         "registered": False,
         "last_depth": None,
-        "last_back": "N/A",
+        "last_knee_status": "N/A",
         "last_score": 0,
         "last_feedback": None,
         "last_knee_angles": (0.0, 0.0),
@@ -385,13 +373,13 @@ def update_squat_state(keypoints, state, frame_shape, counter_active, confidence
     if state is None:
         state = _init_squat_state()
 
-    depth, back_status, feedback, left_knee_angle, right_knee_angle = analyze_squat_form(
+    depth, feedback, left_knee_angle, right_knee_angle, knee_status = analyze_squat_form(
         keypoints, confidence_threshold, frame_shape
     )
 
     if depth is not None and state["is_active"]:
         current_score = calculate_squat_score(
-            depth, back_status, left_knee_angle, right_knee_angle
+            depth, knee_status, left_knee_angle, right_knee_angle
         )
         if abs(current_score - state["last_score"]) > 5:
             state["last_score"] = current_score
@@ -401,7 +389,7 @@ def update_squat_state(keypoints, state, frame_shape, counter_active, confidence
     if depth is not None:
         state["is_active"] = detect_squat_movement(depth, state["is_active"])
         state["last_depth"] = depth
-        state["last_back"] = back_status
+        state["last_knee_status"] = knee_status
         state["last_feedback"] = feedback
         state["last_knee_angles"] = (left_knee_angle, right_knee_angle)
 
