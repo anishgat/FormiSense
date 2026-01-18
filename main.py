@@ -192,18 +192,38 @@ class App(customtkinter.CTk):
         self.footer = customtkinter.CTkFrame(self, corner_radius=12)
         self.footer.grid(row=1, column=0, columnspan=2, sticky="ew", padx=16, pady=(0, 16))
         self.footer.grid_columnconfigure((0, 1, 2, 3), weight=1)
+        self.footer.grid_rowconfigure(1, weight=1)
 
         self.rep_label = customtkinter.CTkLabel(self.footer, text="Reps: 0")
         self.rep_label.grid(row=0, column=0, sticky="w", padx=16, pady=12)
 
-        self.score_label = customtkinter.CTkLabel(self.footer, text="Score: --")
-        self.score_label.grid(row=0, column=1, sticky="w", padx=16, pady=12)
+        score_frame = customtkinter.CTkFrame(self.footer, fg_color="transparent")
+        score_frame.grid(row=0, column=1, sticky="nsew", padx=16, pady=(8, 4))
+        self.score_caption = customtkinter.CTkLabel(
+            score_frame, text="Score", text_color="#9aa3b2"
+        )
+        self.score_caption.grid(row=0, column=0, sticky="w")
+        self.score_value_label = customtkinter.CTkLabel(
+            score_frame,
+            text="--",
+            font=customtkinter.CTkFont(size=28, weight="bold"),
+            text_color="#fbbf24",
+        )
+        self.score_value_label.grid(row=1, column=0, sticky="w")
 
         self.side_label = customtkinter.CTkLabel(self.footer, text="Side: Right")
         self.side_label.grid(row=0, column=2, sticky="w", padx=16, pady=12)
 
         self.detail_label = customtkinter.CTkLabel(self.footer, text="Details: --")
         self.detail_label.grid(row=0, column=3, sticky="e", padx=16, pady=12)
+
+        self.feedback_label = customtkinter.CTkLabel(
+            self.footer,
+            text="Feedback: --",
+            wraplength=900,
+            justify="left",
+        )
+        self.feedback_label.grid(row=1, column=0, columnspan=4, sticky="w", padx=16, pady=(0, 12))
 
     def _load_model(self) -> None:
         try:
@@ -234,9 +254,49 @@ class App(customtkinter.CTk):
 
     def _reset_footer(self) -> None:
         self.rep_label.configure(text="Reps: 0")
-        self.score_label.configure(text="Score: --")
+        self.score_value_label.configure(text="--")
         self.side_label.configure(text=f"Side: {self.side_var.get()}")
         self.detail_label.configure(text="Details: --")
+        self.feedback_label.configure(text="Feedback: --")
+
+    def _bicep_feedback_sentence(self, last_rep):
+        if not last_rep:
+            return "Feedback: Complete a full curl with steady elbows."
+        rom_score = last_rep.get("rom_score")
+        elbow_score = last_rep.get("elbow_score")
+        if rom_score is not None and rom_score < 0.7:
+            return "Feedback: Curl higher and fully extend to improve your range of motion."
+        if elbow_score is not None and elbow_score < 0.7:
+            return "Feedback: Keep your elbow close to your side to reduce drift."
+        return "Feedback: Great form, keep your movement slow and controlled."
+
+    def _lower_body_feedback_sentence(self, label_prefix, knee_status, back_status, feedback):
+        if feedback == "Insufficient visibility":
+            return "Feedback: Keep your full body in view for better tracking."
+
+        cues = []
+        if label_prefix == "Squat":
+            if knee_status != "Knees in position":
+                cues.append("keep your knees tracking over your toes")
+            if feedback == "Go deeper":
+                cues.append("go a bit deeper while staying controlled")
+            elif feedback in ("Good depth", "Excellent depth"):
+                cues.append("maintain that depth")
+            elif feedback and feedback.startswith("Depth:"):
+                cues.append("aim for a deeper, controlled squat")
+        else:
+            if back_status == "Back too forward":
+                cues.append("keep your torso more upright")
+            if feedback == "Front knee: Go deeper":
+                cues.append("drop your front knee a bit deeper")
+            elif feedback in ("Front knee: Excellent", "Good form"):
+                cues.append("keep the same depth and control")
+
+        if not cues:
+            cues.append("hold a steady tempo and posture")
+
+        sentence = " and ".join(cues)
+        return f"Feedback: {sentence}."
 
     def start_session(self) -> None:
         if self.session_active:
@@ -346,11 +406,12 @@ class App(customtkinter.CTk):
 
         score_text = f"{score:.1f}" if score is not None else "--"
         self.rep_label.configure(text=f"Reps: {self.exercise_state.get('count', 0)}")
-        self.score_label.configure(text=f"Score: {score_text}")
+        self.score_value_label.configure(text=score_text)
         self.side_label.configure(text=f"Side: {self.side_var.get()}")
         self.detail_label.configure(
             text=f"ROM {format_component(rom)}  ELB {format_component(elbow)}"
         )
+        self.feedback_label.configure(text=self._bicep_feedback_sentence(last_rep))
 
     def _render_lower_body_metrics(self, label_prefix) -> None:
         if self.exercise_state is None:
@@ -368,10 +429,15 @@ class App(customtkinter.CTk):
         self.status_label.configure(text=status_text)
 
         self.rep_label.configure(text=f"Reps: {count}")
-        self.score_label.configure(text=f"Score: {last_score:.1f}")
+        self.score_value_label.configure(text=f"{last_score:.1f}")
         self.side_label.configure(text=f"Total: {total_score}")
         detail_left = knee_status if label_prefix == "Squat" else back_status
-        self.detail_label.configure(text=f"{detail_left} | {feedback}")
+        self.detail_label.configure(text=detail_left)
+        self.feedback_label.configure(
+            text=self._lower_body_feedback_sentence(
+                label_prefix, knee_status, back_status, feedback
+            )
+        )
 
     def _update_image(self, frame) -> None:
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
