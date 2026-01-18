@@ -163,20 +163,30 @@ def analyze_squat_form(keypoints, confidence_threshold=0.25, frame_shape=None):
 
     knees_in_position = True
     ankle_conf_threshold = 0.2
+    min_dx = 4.0
+    min_dy = 4.0
+
+    def _knee_slope(knee, ankle):
+        dy = ankle[0] - knee[0]
+        dx = ankle[1] - knee[1]
+        if dy < min_dy or abs(dx) < min_dx:
+            return None
+        return dy / dx
+
+    left_slope = None
+    right_slope = None
 
     if left_knee_conf > confidence_threshold and left_ankle_conf > ankle_conf_threshold:
-        knee_to_ankle_dx = left_ankle[0] - left_knee[0]
-        knee_to_ankle_dy = left_ankle[1] - left_knee[1]
-        if knee_to_ankle_dy > 5:
-            if knee_to_ankle_dx < -15 or knee_to_ankle_dx > 20:
-                knees_in_position = False
+        left_slope = _knee_slope(left_knee, left_ankle)
 
     if right_knee_conf > confidence_threshold and right_ankle_conf > ankle_conf_threshold:
-        knee_to_ankle_dx = right_ankle[0] - right_knee[0]
-        knee_to_ankle_dy = right_ankle[1] - right_knee[1]
-        if knee_to_ankle_dy > 5:
-            if knee_to_ankle_dx > 15 or knee_to_ankle_dx < -20:
-                knees_in_position = False
+        right_slope = _knee_slope(right_knee, right_ankle)
+
+    left_caving_in = left_slope is not None and left_slope > 0
+    right_caving_in = right_slope is not None and right_slope < 0
+
+    if left_caving_in or right_caving_in:
+        knees_in_position = False
 
     knee_status = "Knees in position" if knees_in_position else "Knees out of position"
 
